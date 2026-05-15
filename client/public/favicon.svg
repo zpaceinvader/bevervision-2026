@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="14" fill="#0a0a0a"/>
+  <!-- Eurovision-style heart/star outline in gold -->
+  <path d="M32 12 L38 24 L51 26 L42 36 L44 50 L32 43 L20 50 L22 36 L13 26 L26 24 Z"
+        fill="none" stroke="#F59E0B" stroke-width="2.5" stroke-linejoin="round"/>
+  <!-- Beaver-tail silhouette inside, slightly off-center -->
+  <ellipse cx="32" cy="35" rx="9" ry="11" fill="#F59E0B"/>
+  <path d="M27 30 L37 30 M26 35 L38 35 M27 40 L37 40" stroke="#0a0a0a" stroke-width="1.4" stroke-linecap="round"/>
+</svg>

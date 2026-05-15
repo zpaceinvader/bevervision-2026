@@ -14,10 +14,19 @@ A real-time web app where 5–10 party guests join on their phones, score each E
 ## Branding
 
 - **Name:** Bevervision
-- **Logo:** Eurovision-style heart/star motif with a beaver silhouette or tail incorporated
-- **Color palette:** Deep purple, gold, electric blue — Eurovision camp aesthetic
-- **Font:** Bold, slightly retro/camp
-- **Tone:** Fun, party-ready, slightly absurd
+- **UI language:** Swedish (player- and host-facing copy). SPEC/SPRINTS docs stay in English.
+- **Visual direction:** Late-night gala — pitch-black stage, silver chrome surfaces, gold spotlight accents. No purple, no blue.
+- **Background:** Pure black (`#000`) with a slow 24 s diagonal gradient drifting through near-blacks tinted with the faintest gold/blue (`#000000` → `#0a0a0a` → `#14110a` → `#0a0d12` → `#000000`). Reduced-motion users get a static black.
+- **Searchlights:** A small number of soft, faint gold/silver beams sweep from the bottom edge behind the content (very low alpha, `mix-blend-mode: screen`, generous blur). They should read as atmospheric, not decorative.
+- **Header art:** Owner-supplied `client/assets/header.png` (used on the landing page). No separate logo mark — favicon is a tiny gold star + beaver-tail glyph (`client/public/favicon.svg`).
+- **Color palette:**
+  - **Black:** `#000` page background, dark surfaces use translucent silver-900 over the gradient.
+  - **Gold** (Tailwind `gold-*`): `#FBBF24` (400) · `#F59E0B` (500, primary action) · `#D97706` (600). Used for the wordmark, primary buttons, selected score chips, the voting-closed banner, the winner card, and toasts.
+  - **Silver** (Tailwind `silver-*`, custom scale): `#F5F5F5` (100) → `#0F0F0F` (900). Surfaces use `silver-900/60–70` over the gradient; borders use `silver-700/800`; muted text uses `silver-300/400/500`.
+  - **White:** primary text.
+  - **System red** (Tailwind default `red-*`): destructive actions ("Stäng röstning") and error states only.
+- **Typography:** Display wordmark in **Protest Riot** (Google Fonts, `font-display`). Body uses the system UI stack. Country names, room codes, and numeric scores use a monospaced track (`font-mono`) for that scoreboard feel.
+- **Tone:** Fun, party-ready, slightly absurd — held in check by the dark, restrained palette so it reads as gala rather than carnival.
 
 ---
 
@@ -268,6 +277,24 @@ Result {
 
 Hardcoded in server environment variable: `HOST_PASSWORD`.  
 Set in Railway environment config. Default for dev: `bever2026`.
+
+---
+
+## Deployment
+
+- **Live URL:** https://bevervision-production.up.railway.app
+- **Hosting:** Railway, single service, EU West region
+- **Source:** GitHub repo `zpaceinvader/bevervision-2026`, branch `main`. Every push to `main` triggers an auto-deploy.
+- **Build:** `npm install && npm run build` (root workspace command; builds client into `client/dist` and compiles server to `server/dist`)
+- **Start:** `npm start` → `node server/dist/index.js`
+- **Healthcheck:** `GET /api/ping` → `{ ok: true }`, 10s timeout (configured in `railway.json`)
+- **Env vars (set in Railway dashboard, not committed):**
+  - `HOST_PASSWORD` (required)
+  - `NODE_ENV=production`
+  - `PORT` is auto-injected by Railway — do not override
+- **CORS:** prod uses same-origin (Express serves the React build from the same domain). Dev allows `http://localhost:5173`.
+- **SQLite storage:** ephemeral container filesystem (no Railway Volume). The DB file is re-created and re-seeded with the 25 countries on every container start. Acceptable for a one-night party — if Railway redeploys mid-party, room state is lost. If durability is later required, mount a Railway Volume (e.g. at `/data`) and set the DB path via env var.
+- **Socket.io transport:** configure with `transports: ['polling', 'websocket']` (websocket preferred, polling fallback) so traffic survives Railway's proxy regardless of which transport upgrades.
 
 ---
 

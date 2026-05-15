@@ -4,6 +4,121 @@
 
 @layer base {
   body {
-    @apply bg-purple-950 text-white min-h-screen;
+    @apply text-white min-h-screen;
+    background-color: #000;
+    background-image: linear-gradient(
+      135deg,
+      #000000 0%,
+      #0a0a0a 20%,
+      #14110a 40%,
+      #0a0a0a 60%,
+      #0a0d12 80%,
+      #000000 100%
+    );
+    background-size: 400% 400%;
+    animation: bg-flow 24s ease-in-out infinite;
+  }
+
+  /* Native <select> dropdown panel uses the OS default (white) unless we set
+     a background on the option, which then inherits the parent's white text. */
+  option {
+    background-color: #0F0F0F;
+    color: #ffffff;
+  }
+
+  /* Chrome/Safari autofill forces its own background colour and can override
+     our text colour. Inputs in this app use silver backgrounds with black
+     text, so mask the autofill background light and force the text black. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active,
+  input:autofill {
+    -webkit-text-fill-color: #000000 !important;
+    -webkit-box-shadow: 0 0 0 1000px #E5E5E5 inset !important;
+    box-shadow: 0 0 0 1000px #E5E5E5 inset !important;
+    caret-color: #000000;
+    transition: background-color 9999s ease-in-out 0s;
+  }
+
+  /* Placeholders sit on silver (light) inputs — keep them dark enough to read. */
+  ::placeholder {
+    color: #5C5C5C;
+    opacity: 1;
+  }
+}
+
+@keyframes bg-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.sparkle {
+  position: absolute;
+  border-radius: 9999px;
+  opacity: 0;
+  animation-name: sparkle-twinkle;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+  will-change: opacity, transform;
+}
+
+.searchlight {
+  position: absolute;
+  bottom: -10vh;
+  width: 70px;
+  height: 50vh;
+  clip-path: polygon(48% 100%, 52% 100%, 100% 0, 0 0);
+  background: linear-gradient(to top, var(--beam-color) 0%, transparent 80%);
+  transform-origin: 50% 100%;
+  mix-blend-mode: screen;
+  filter: blur(4px);
+  animation-name: searchlight-sweep;
+  animation-iteration-count: infinite;
+  animation-timing-function: ease-in-out;
+  animation-direction: alternate;
+  will-change: transform;
+  margin-left: -35px;
+}
+
+@keyframes searchlight-sweep {
+  from {
+    transform: rotate(var(--rot-from));
+  }
+  to {
+    transform: rotate(var(--rot-to));
+  }
+}
+
+@keyframes sparkle-twinkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    animation: none;
+  }
+  .sparkle {
+    animation: none;
+    opacity: 0.4;
+  }
+  .searchlight {
+    animation: none;
+    transform: rotate(0deg);
   }
 }

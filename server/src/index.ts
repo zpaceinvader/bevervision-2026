@@ -2,6 +2,13 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
+import http from 'http'
+import { Server as SocketIOServer } from 'socket.io'
+import { initDb } from './db'
+import roomRouter from './routes/room'
+import { registerSocketHandlers } from './socket/handlers'
+
+initDb()
 
 const app = express()
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000
@@ -15,6 +22,8 @@ app.get('/api/ping', (_req, res) => {
   res.json({ ok: true })
 })
 
+app.use('/api', roomRouter)
+
 // Serve React app in production
 if (IS_PROD) {
   const clientDist = path.join(__dirname, '../../client/dist')
@@ -24,6 +33,13 @@ if (IS_PROD) {
   })
 }
 
-app.listen(PORT, () => {
+const httpServer = http.createServer(app)
+const io = new SocketIOServer(httpServer, {
+  cors: { origin: IS_PROD ? false : 'http://localhost:5173' },
+  transports: ['polling', 'websocket'],
+})
+registerSocketHandlers(io)
+
+httpServer.listen(PORT, () => {
   console.log(`Bevervision server running on port ${PORT} [${IS_PROD ? 'production' : 'development'}]`)
 })
