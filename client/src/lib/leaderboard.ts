@@ -16,14 +16,21 @@ export interface PredictionBreakdown {
   norway: number
 }
 
+export interface QuizBreakdown {
+  total: number
+  correctCount: number
+}
+
 export interface PlayerFinalScore {
   playerId: string
   name: string
   juryAccuracyScore: number
   predictionScore: number
+  quizScore: number
   totalScore: number
   breakdown: {
     jury: { total: number; perCountry: JuryPerCountry[] }
     prediction: PredictionBreakdown
+    quiz: QuizBreakdown
   }
 }

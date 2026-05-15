@@ -12,6 +12,7 @@ import {
   type RoomRow,
 } from '../rooms'
 import { calculateFinalScores } from '../scoring'
+import { recordAnswer, resetRoomQuiz, startQuiz } from '../quiz'
 
 interface JoinRoomPayload {
   code: string
@@ -287,6 +288,53 @@ export function registerSocketHandlers(io: Server) {
       replace()
       socket.emit('host:ack', { event: 'host:enter_results', code: room.id })
       io.to(room.id).emit('results:saved')
+    })
+
+    socket.on('host:reset_room', (payload: HostBasePayload) => {
+      const room = authorizeHost(socket, 'host:reset_room', payload)
+      if (!room) return
+      const reset = db.transaction(() => {
+        db.prepare('DELETE FROM scores WHERE player_id IN (SELECT id FROM players WHERE room_id = ?)').run(room.id)
+        db.prepare("UPDATE players SET predictions = '{}' WHERE room_id = ?").run(room.id)
+        db.prepare('DELETE FROM official_results WHERE room_id = ?').run(room.id)
+        db.prepare('DELETE FROM results WHERE room_id = ?').run(room.id)
+        db.prepare("UPDATE rooms SET status = 'open' WHERE id = ?").run(room.id)
+      })
+      reset()
+      resetRoomQuiz(room.id)
+      io.to(room.id).emit('room:reset')
+      socket.emit('host:ack', { event: 'host:reset_room', code: room.id })
+    })
+
+    socket.on('host:trigger_quiz', (payload: HostBasePayload) => {
+      const room = authorizeHost(socket, 'host:trigger_quiz', payload)
+      if (!room) return
+      if (room.status === 'revealed') {
+        socket.emit('error_msg', { event: 'host:trigger_quiz', message: 'Topplistan är redan avslöjad' })
+        return
+      }
+      const result = startQuiz(io, room.id)
+      if (!result.ok) {
+        socket.emit('error_msg', { event: 'host:trigger_quiz', message: result.error })
+        return
+      }
+      socket.emit('host:ack', {
+        event: 'host:trigger_quiz',
+        code: room.id,
+        questionId: result.question.id,
+        deadlineMs: result.deadlineMs,
+      })
+    })
+
+    socket.on('player:quiz_answer', (payload: { questionId: number; answerIndex: number }) => {
+      const { playerId, roomId } = getSocketContext(socket)
+      if (!playerId || !roomId) return
+      const result = recordAnswer(roomId, playerId, Number(payload?.questionId), Number(payload?.answerIndex))
+      if (!result.ok) {
+        socket.emit('error_msg', { event: 'player:quiz_answer', message: result.reason || 'Kunde inte spara svar' })
+        return
+      }
+      socket.emit('quiz:answer_acked', { questionId: Number(payload.questionId) })
     })
 
     socket.on('host:reveal_leaderboard', (payload: HostBasePayload) => {

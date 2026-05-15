@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useT } from '../lib/i18n'
 import type { Country } from '../lib/types'
 
 export interface ResultRow {
@@ -14,60 +15,76 @@ interface Props {
   onSubmit: (rows: { countryId: number; officialRank: number; officialPoints: number }[]) => void
 }
 
+interface PointsRow {
+  countryId: number
+  officialPoints: number | null
+}
+
 export default function ResultsEntry({ countries, initial, disabled, onSubmit }: Props) {
-  const [rows, setRows] = useState<ResultRow[]>(() => {
+  const { t } = useT()
+  const [rows, setRows] = useState<PointsRow[]>(() => {
     const byId = new Map(initial?.map((r) => [r.countryId, r]))
-    return countries.map((c) => byId.get(c.id) ?? { countryId: c.id, officialRank: null, officialPoints: null })
+    return countries.map((c) => {
+      const existing = byId.get(c.id)
+      return { countryId: c.id, officialPoints: existing?.officialPoints ?? null }
+    })
   })
   const [error, setError] = useState<string | null>(null)
 
-  const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      if (a.officialRank == null && b.officialRank == null) return a.countryId - b.countryId
-      if (a.officialRank == null) return 1
-      if (b.officialRank == null) return -1
-      return a.officialRank - b.officialRank
+  const ranked = useMemo(() => {
+    const sorted = [...rows].sort((a, b) => {
+      const ap = a.officialPoints
+      const bp = b.officialPoints
+      if (ap == null && bp == null) return a.countryId - b.countryId
+      if (ap == null) return 1
+      if (bp == null) return -1
+      if (bp !== ap) return bp - ap
+      return a.countryId - b.countryId
     })
+    return sorted.map((r, i) => ({
+      ...r,
+      derivedRank: r.officialPoints == null ? null : i + 1,
+    }))
   }, [rows])
 
-  function update(countryId: number, patch: Partial<ResultRow>) {
-    setRows((prev) => prev.map((r) => (r.countryId === countryId ? { ...r, ...patch } : r)))
+  function update(countryId: number, points: number | null) {
+    setRows((prev) => prev.map((r) => (r.countryId === countryId ? { ...r, officialPoints: points } : r)))
   }
 
   function handleSubmit() {
     setError(null)
-    const seenRanks = new Set<number>()
-    for (const r of rows) {
-      if (r.officialRank == null || r.officialPoints == null) {
-        setError('Fyll i plats och poäng för alla länder')
-        return
-      }
-      if (seenRanks.has(r.officialRank)) {
-        setError(`Plats ${r.officialRank} används flera gånger`)
-        return
-      }
-      seenRanks.add(r.officialRank)
+    if (rows.some((r) => r.officialPoints == null)) {
+      setError(t('results.fillAll'))
+      return
     }
+    const sorted = [...rows].sort((a, b) => {
+      const ap = a.officialPoints as number
+      const bp = b.officialPoints as number
+      if (bp !== ap) return bp - ap
+      return a.countryId - b.countryId
+    })
     onSubmit(
-      rows.map((r) => ({
+      sorted.map((r, i) => ({
         countryId: r.countryId,
-        officialRank: r.officialRank as number,
+        officialRank: i + 1,
         officialPoints: r.officialPoints as number,
       }))
     )
   }
 
-  const totalCountries = countries.length || 25
   const countryById = new Map(countries.map((c) => [c.id, c]))
 
   return (
     <div className="space-y-3">
+      <p className="text-xs text-silver-400 px-1">
+        {t('results.instruction')}
+      </p>
       <div className="grid grid-cols-12 gap-2 text-xs uppercase text-silver-400 tracking-wider px-2">
-        <span className="col-span-2">Plats</span>
-        <span className="col-span-7">Land</span>
-        <span className="col-span-3">Poäng</span>
+        <span className="col-span-2">{t('results.place')}</span>
+        <span className="col-span-7">{t('results.country')}</span>
+        <span className="col-span-3">{t('results.points')}</span>
       </div>
-      {sorted.map((r) => {
+      {ranked.map((r) => {
         const c = countryById.get(r.countryId)
         if (!c) return null
         return (
@@ -75,26 +92,14 @@ export default function ResultsEntry({ countries, initial, disabled, onSubmit }:
             key={r.countryId}
             className="grid grid-cols-12 gap-2 items-center rounded-lg bg-silver-900/60 border border-silver-700 px-2 py-2"
           >
-            <input
-              type="number"
-              min={1}
-              max={totalCountries}
-              value={r.officialRank ?? ''}
-              disabled={disabled}
-              onChange={(e) => {
-                const raw = e.target.value
-                if (raw === '') return update(r.countryId, { officialRank: null })
-                const n = Math.max(1, Math.min(totalCountries, Math.round(Number(raw))))
-                if (Number.isFinite(n)) update(r.countryId, { officialRank: n })
-              }}
-              placeholder="#"
-              className="col-span-2 rounded-md bg-black/60 border border-silver-700 px-2 py-1.5 text-white text-center font-mono focus:outline-none focus:border-gold-500 disabled:opacity-50"
-            />
+            <div className="col-span-2 text-center font-mono text-gold-400 text-lg">
+              {r.derivedRank == null ? '—' : `#${r.derivedRank}`}
+            </div>
             <div className="col-span-7 flex items-center gap-2 min-w-0">
               <span className="text-xl leading-none">{c.flag}</span>
-              <span className="text-black truncate text-sm">
+              <span className="text-silver-100 truncate text-sm">
                 {c.country}
-                <span className="text-black ml-2 text-xs">#{c.id.toString().padStart(2, '0')}</span>
+                <span className="text-silver-400 ml-2 text-xs">#{c.id.toString().padStart(2, '0')}</span>
               </span>
             </div>
             <input
@@ -104,9 +109,9 @@ export default function ResultsEntry({ countries, initial, disabled, onSubmit }:
               disabled={disabled}
               onChange={(e) => {
                 const raw = e.target.value
-                if (raw === '') return update(r.countryId, { officialPoints: null })
+                if (raw === '') return update(r.countryId, null)
                 const n = Math.max(0, Math.round(Number(raw)))
-                if (Number.isFinite(n)) update(r.countryId, { officialPoints: n })
+                if (Number.isFinite(n)) update(r.countryId, n)
               }}
               placeholder="0"
               className="col-span-3 rounded-md bg-black/60 border border-silver-700 px-2 py-1.5 text-white text-right font-mono focus:outline-none focus:border-gold-500 disabled:opacity-50"
@@ -123,7 +128,7 @@ export default function ResultsEntry({ countries, initial, disabled, onSubmit }:
         disabled={disabled}
         className="w-full rounded-lg bg-gold-500 hover:bg-gold-400 text-black font-semibold py-3 disabled:opacity-50"
       >
-        Spara resultat
+        {t('results.save')}
       </button>
     </div>
   )

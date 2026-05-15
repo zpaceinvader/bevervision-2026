@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useT } from '../lib/i18n'
 import type { PlayerFinalScore } from '../lib/leaderboard'
 
 interface Props {
@@ -19,6 +20,7 @@ export default function LeaderboardReveal({
   stepMs = 1800,
   skipAnimation,
 }: Props) {
+  const { t } = useT()
   const totalPlaces = rankings.length
   const [revealedRanks, setRevealedRanks] = useState<number>(skipAnimation ? totalPlaces : 0)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([])
@@ -43,7 +45,7 @@ export default function LeaderboardReveal({
   }, [totalPlaces, initialDelayMs, stepMs, skipAnimation])
 
   if (totalPlaces === 0) {
-    return <p className="text-silver-300 text-center py-8">Inga resultat ännu.</p>
+    return <p className="text-silver-300 text-center py-8">{t('reveal.noResults')}</p>
   }
 
   return (
@@ -76,6 +78,7 @@ export default function LeaderboardReveal({
 }
 
 function PlayerCard({ rank, player, isWinner }: { rank: number; player: PlayerFinalScore; isWinner: boolean }) {
+  const { t } = useT()
   return (
     <div
       className={[
@@ -95,11 +98,12 @@ function PlayerCard({ rank, player, isWinner }: { rank: number; player: PlayerFi
           #{rank}
         </div>
         <div className="min-w-0 flex-1">
-          <div className={['text-lg font-bold truncate', isWinner ? 'text-black' : 'text-black'].join(' ')}>
+          <div className={['text-lg font-bold truncate', isWinner ? 'text-black' : 'text-silver-100'].join(' ')}>
             {player.name}
           </div>
-          <div className={['text-xs', isWinner ? 'text-black/80' : 'text-black'].join(' ')}>
-            Jury {player.juryAccuracyScore} · Gissning {player.predictionScore}
+          <div className={['text-xs', isWinner ? 'text-black/80' : 'text-silver-300'].join(' ')}>
+            {t('reveal.jury')} {player.juryAccuracyScore} · {t('reveal.prediction')} {player.predictionScore}
+            {player.quizScore > 0 && <> · {t('reveal.quiz')} {player.quizScore}</>}
           </div>
         </div>
         <div className="text-right">
@@ -111,8 +115,8 @@ function PlayerCard({ rank, player, isWinner }: { rank: number; player: PlayerFi
           >
             {player.totalScore}
           </div>
-          <div className={['text-[10px] uppercase tracking-wider', isWinner ? 'text-black/70' : 'text-black'].join(' ')}>
-            poäng
+          <div className={['text-[10px] uppercase tracking-wider', isWinner ? 'text-black/70' : 'text-silver-500'].join(' ')}>
+            {t('common.points')}
           </div>
         </div>
       </div>

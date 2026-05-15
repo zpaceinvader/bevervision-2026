@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useT } from '../lib/i18n'
 
 interface Props {
   code: string
@@ -7,13 +8,14 @@ interface Props {
 }
 
 export default function HostPasswordPrompt({ code, onSubmit, errorMsg }: Props) {
+  const { t } = useT()
   const [password, setPassword] = useState('')
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-6">
       <h1 className="font-display text-3xl text-gold-500 mb-2">BEVERVISION</h1>
       <p className="text-silver-300 text-sm mb-8">
-        Värdpanel — Rum <span className="font-mono tracking-widest text-white">{code}</span>
+        {t('hostPrompt.subtitle')} <span className="font-mono tracking-widest text-white">{code}</span>
       </p>
       <form
         onSubmit={(e) => {
@@ -23,7 +25,7 @@ export default function HostPasswordPrompt({ code, onSubmit, errorMsg }: Props) 
         className="w-full max-w-sm space-y-4"
       >
         <label className="block">
-          <span className="text-sm text-silver-200">Värdlösenord</span>
+          <span className="text-sm text-silver-200">{t('hostCreate.password')}</span>
           <input
             type="password"
             value={password}
@@ -37,7 +39,7 @@ export default function HostPasswordPrompt({ code, onSubmit, errorMsg }: Props) 
           type="submit"
           className="w-full rounded-lg bg-gold-500 hover:bg-gold-400 text-black font-semibold py-3"
         >
-          Logga in
+          {t('hostPrompt.login')}
         </button>
       </form>
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import LeaderboardReveal from '../components/LeaderboardReveal'
+import { useT } from '../lib/i18n'
 import { getSession } from '../lib/storage'
 import type { PlayerFinalScore } from '../lib/leaderboard'
 
@@ -12,6 +13,7 @@ export default function Leaderboard() {
   const { code } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const { t } = useT()
   const upperCode = (code ?? '').toUpperCase()
   const fromState = (location.state as LocationState | null)?.rankings ?? null
 
@@ -43,8 +45,8 @@ export default function Leaderboard() {
     fetch(`/api/rooms/${upperCode}/results`)
       .then(async (r) => {
         if (!r.ok) {
-          if (r.status === 404) throw new Error('Resultat saknas ännu')
-          throw new Error('Kunde inte hämta resultat')
+          if (r.status === 404) throw new Error(t('leaderboard.noResultsYet'))
+          throw new Error(t('leaderboard.couldNotFetch'))
         }
         return r.json()
       })
@@ -61,7 +63,7 @@ export default function Leaderboard() {
     return () => {
       alive = false
     }
-  }, [upperCode, rankings])
+  }, [upperCode, rankings, t])
 
   const session = upperCode ? getSession(upperCode) : null
 
@@ -70,12 +72,12 @@ export default function Leaderboard() {
       <header className="px-6 pt-6 pb-3 text-center">
         <h1 className="font-display text-4xl text-gold-500 leading-none">BEVERVISION</h1>
         <p className="text-silver-300 text-sm mt-1">
-          Topplistan · Rum <span className="font-mono tracking-widest text-white">{upperCode}</span>
+          {t('leaderboard.title')} · {t('room.roomLabel')} <span className="font-mono tracking-widest text-white">{upperCode}</span>
         </p>
       </header>
 
       <main className="px-6 mt-4">
-        {refetching && <p className="text-silver-300 text-center py-8">Hämtar resultat…</p>}
+        {refetching && <p className="text-silver-300 text-center py-8">{t('leaderboard.fetching')}</p>}
         {errorMsg && (
           <div className="rounded-lg bg-red-900/40 border border-red-700 p-4 text-red-200 text-center">
             {errorMsg}
@@ -93,10 +95,10 @@ export default function Leaderboard() {
               onClick={() => navigate('/')}
               className="rounded-lg bg-gold-500 hover:bg-gold-400 text-black font-semibold px-6 py-3"
             >
-              Tillbaka till start
+              {t('common.back')}
             </button>
           ) : session ? (
-            <p className="text-silver-500 text-xs">Tack för att du spelade, {session.name}!</p>
+            <p className="text-silver-500 text-xs">{t('leaderboard.thanks', { name: session.name })}</p>
           ) : null}
         </footer>
       )}

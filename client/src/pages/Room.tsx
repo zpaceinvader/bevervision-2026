@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import CatReaction, { CAT_IMAGE_URLS, type Reaction } from '../components/CatReaction'
 import CountryScoreCard from '../components/CountryScoreCard'
+import LanguageToggle from '../components/LanguageToggle'
 import PredictionForm from '../components/PredictionForm'
+import QuizModal, { type QuizQuestion, type QuizReveal } from '../components/QuizModal'
+import { playQuizChime, warmAudio } from '../lib/audio'
+import { useT } from '../lib/i18n'
+import { scoreToCat } from '../lib/scoreReaction'
 import { connectSocket } from '../lib/socket'
 import { clearSession, getSession, saveSession } from '../lib/storage'
 import type { Country, PredictionField, Predictions, RoomStatus } from '../lib/types'
@@ -26,6 +32,7 @@ export default function Room() {
   const { code } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const { t } = useT()
   const initialName = (location.state as { name?: string } | null)?.name
 
   const [status, setStatus] = useState<'connecting' | 'joined' | 'error'>('connecting')
@@ -46,6 +53,21 @@ export default function Room() {
   const debouncedEmit = useDebouncedEmit(socket, 300)
   const votingLocked = roomStatus !== 'open'
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reactionCounter = useRef(0)
+  const [reaction, setReaction] = useState<Reaction | null>(null)
+
+  const [quizQuestion, setQuizQuestion] = useState<QuizQuestion | null>(null)
+  const [quizReveal, setQuizReveal] = useState<QuizReveal | null>(null)
+  const [quizSubmitting, setQuizSubmitting] = useState(false)
+  const quizMyAnswer = useRef<number | null>(null)
+  const quizDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    Object.values(CAT_IMAGE_URLS).forEach((url) => {
+      const img = new Image()
+      img.src = url
+    })
+  }, [])
 
   function flashSaved(text: string) {
     setSavingFlash(text)
@@ -125,6 +147,42 @@ export default function Room() {
     function onVotingClosed() {
       setRoomStatus('closed')
     }
+    function onRoomReset() {
+      setScores({})
+      setPredictions({})
+      setRoomStatus('open')
+      setQuizQuestion(null)
+      setQuizReveal(null)
+      quizMyAnswer.current = null
+      flashSaved(t('room.roomReset'))
+    }
+    function onQuizQuestion(payload: QuizQuestion) {
+      if (quizDismissTimer.current) {
+        clearTimeout(quizDismissTimer.current)
+        quizDismissTimer.current = null
+      }
+      quizMyAnswer.current = null
+      setQuizReveal(null)
+      setQuizSubmitting(false)
+      setQuizQuestion(payload)
+      playQuizChime()
+    }
+    function onQuizAnswerAcked() {
+      setQuizSubmitting(false)
+    }
+    function onQuizReveal(payload: { questionId: number; correctIndex: number }) {
+      setQuizReveal({
+        questionId: payload.questionId,
+        correctIndex: payload.correctIndex,
+        myAnswer: quizMyAnswer.current,
+      })
+      if (quizDismissTimer.current) clearTimeout(quizDismissTimer.current)
+      quizDismissTimer.current = setTimeout(() => {
+        setQuizQuestion(null)
+        setQuizReveal(null)
+        quizMyAnswer.current = null
+      }, 3500)
+    }
     function onLeaderboardReveal(payload: { rankings: unknown[] }) {
       navigate(`/leaderboard/${upperCode}`, { state: { rankings: payload.rankings } })
     }
@@ -139,12 +197,12 @@ export default function Room() {
     function onScoreProgress({ playerId }: { playerId: string }) {
       // Flash a toast only when it's our own score that was saved
       setMe((current) => {
-        if (current && playerId === current.playerId) flashSaved('Poäng sparad')
+        if (current && playerId === current.playerId) flashSaved(t('room.scoreSaved'))
         return current
       })
     }
     function onPredictionSaved() {
-      flashSaved('Gissning sparad')
+      flashSaved(t('room.predictionSaved'))
     }
 
     socket.on('connect', onConnect)
@@ -154,9 +212,13 @@ export default function Room() {
     socket.on('player:status', onPlayerStatus)
     socket.on('player:renamed', onPlayerRenamed)
     socket.on('voting:closed', onVotingClosed)
+    socket.on('room:reset', onRoomReset)
     socket.on('leaderboard:reveal', onLeaderboardReveal)
     socket.on('score_progress', onScoreProgress)
     socket.on('prediction_saved', onPredictionSaved)
+    socket.on('quiz:question', onQuizQuestion)
+    socket.on('quiz:answer_acked', onQuizAnswerAcked)
+    socket.on('quiz:reveal', onQuizReveal)
     socket.on('error_msg', onError)
 
     if (socket.connected) emitJoin()
@@ -169,17 +231,28 @@ export default function Room() {
       socket.off('player:status', onPlayerStatus)
       socket.off('player:renamed', onPlayerRenamed)
       socket.off('voting:closed', onVotingClosed)
+      socket.off('room:reset', onRoomReset)
       socket.off('leaderboard:reveal', onLeaderboardReveal)
       socket.off('score_progress', onScoreProgress)
       socket.off('prediction_saved', onPredictionSaved)
+      socket.off('quiz:question', onQuizQuestion)
+      socket.off('quiz:answer_acked', onQuizAnswerAcked)
+      socket.off('quiz:reveal', onQuizReveal)
       socket.off('error_msg', onError)
+      if (quizDismissTimer.current) clearTimeout(quizDismissTimer.current)
     }
-  }, [code, initialName, navigate, socket])
+  }, [code, initialName, navigate, socket, t])
 
   function setScore(countryId: number, next: number | null) {
     if (votingLocked) return
+    warmAudio()
     setScores((prev) => ({ ...prev, [countryId]: next }))
     debouncedEmit(`score:${countryId}`, 'player:score', { countryId, score: next })
+    const cat = scoreToCat(next)
+    if (cat) {
+      reactionCounter.current += 1
+      setReaction({ id: reactionCounter.current, cat })
+    }
   }
 
   function setPrediction(field: PredictionField, value: number | null) {
@@ -188,33 +261,45 @@ export default function Room() {
     debouncedEmit(`prediction:${field}`, 'player:prediction', { field, value })
   }
 
+  function answerQuiz(answerIndex: number) {
+    if (!quizQuestion || quizReveal) return
+    quizMyAnswer.current = answerIndex
+    setQuizSubmitting(true)
+    socket.emit('player:quiz_answer', { questionId: quizQuestion.id, answerIndex })
+  }
+
   const scoredCount = Object.values(scores).filter((v) => v != null).length
 
   if (!code) return null
 
   return (
     <div className="min-h-screen pb-24 max-w-xl mx-auto">
+      {quizQuestion && (
+        <QuizModal
+          question={quizQuestion}
+          reveal={quizReveal}
+          submitting={quizSubmitting}
+          onAnswer={answerQuiz}
+        />
+      )}
       <header className="px-6 pt-6 pb-3 sticky top-0 backdrop-blur-md bg-black/60 z-10 border-b border-silver-800">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-center justify-between">
           <div>
             <h1 className="font-display text-2xl text-gold-500">BEVERVISION</h1>
             <p className="text-silver-300 text-xs">
-              Rum <span className="font-mono tracking-widest text-white">{code.toUpperCase()}</span>
+              {t('room.roomLabel')} <span className="font-mono tracking-widest text-white">{code.toUpperCase()}</span>
               {me && <span className="ml-3 text-silver-400">{me.name}</span>}
             </p>
           </div>
           <div className="text-xs text-silver-300 text-right">
-            <div>{players.filter((p) => p.online).length} online</div>
-            <div className="text-silver-500">
-              {scoredCount}/{countries.length || 25} bedömda
-            </div>
+            <LanguageToggle />
           </div>
         </div>
       </header>
 
       {reconnecting && status === 'joined' && (
-        <div className="mx-6 mt-4 rounded-lg bg-silver-800/80 border border-silver-700 px-4 py-2 text-center text-sm text-black">
-          Återansluter…
+        <div className="mx-6 mt-4 rounded-lg bg-silver-800/80 border border-silver-700 px-4 py-2 text-center text-sm text-silver-100">
+          {t('room.reconnecting')}
         </div>
       )}
 
@@ -224,12 +309,14 @@ export default function Room() {
         </div>
       )}
 
-      {status === 'connecting' && <p className="text-silver-300 px-6 py-6">Ansluter…</p>}
+      <CatReaction reaction={reaction} />
+
+      {status === 'connecting' && <p className="text-silver-300 px-6 py-6">{t('room.connecting')}</p>}
       {status === 'error' && (
         <div className="m-6 rounded-lg bg-red-900/40 border border-red-700 p-4 text-red-200">
-          <p className="font-semibold">Kunde inte ansluta: {errorMsg}</p>
+          <p className="font-semibold">{t('room.couldNotConnect', { err: errorMsg ?? '' })}</p>
           <button onClick={() => navigate('/')} className="mt-3 text-sm underline text-red-100">
-            Tillbaka till start
+            {t('common.back')}
           </button>
         </div>
       )}
@@ -238,7 +325,7 @@ export default function Room() {
         <>
           {votingLocked && (
             <div className="mx-6 mt-4 rounded-lg bg-gold-500 text-black px-4 py-3 font-bold uppercase text-center tracking-wider">
-              Röstningen är stängd
+              {t('room.votingClosed')}
             </div>
           )}
 
@@ -247,25 +334,25 @@ export default function Room() {
               onClick={() => setTab('score')}
               className={[
                 'flex-1 py-2 rounded-lg text-sm font-semibold transition-colors',
-                tab === 'score' ? 'bg-gold-500 text-black' : 'bg-silver-800/60 text-black',
+                tab === 'score' ? 'bg-gold-500 text-black' : 'bg-silver-800/60 text-silver-200',
               ].join(' ')}
             >
-              Poäng
+              {t('room.tabScore')}
             </button>
             <button
               onClick={() => setTab('predictions')}
               className={[
                 'flex-1 py-2 rounded-lg text-sm font-semibold transition-colors',
-                tab === 'predictions' ? 'bg-gold-500 text-black' : 'bg-silver-800/60 text-black',
+                tab === 'predictions' ? 'bg-gold-500 text-black' : 'bg-silver-800/60 text-silver-200',
               ].join(' ')}
             >
-              Gissningar
+              {t('room.tabPredictions')}
             </button>
           </nav>
 
           {tab === 'score' && (
             <section className="px-6 space-y-3">
-              {countries.length === 0 && <p className="text-silver-400 text-sm">Laddar länder…</p>}
+              {countries.length === 0 && <p className="text-silver-400 text-sm">{t('room.loadingCountries')}</p>}
               {countries.map((c) => (
                 <CountryScoreCard
                   key={c.id}

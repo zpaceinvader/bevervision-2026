@@ -1,49 +1,41 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import headerImage from '../../assets/header.png'
+import { useT } from '../lib/i18n'
 
 export default function Landing() {
   const navigate = useNavigate()
+  const { t } = useT()
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function go(mode: 'join' | 'create') {
+  async function join() {
     setError(null)
     const trimmedName = name.trim()
     if (!trimmedName) {
-      setError('Ange ett visningsnamn')
+      setError(t('landing.enterDisplayName'))
+      return
+    }
+    const trimmedCode = code.trim().toUpperCase()
+    if (!trimmedCode) {
+      setError(t('landing.enterRoomCode'))
       return
     }
     setBusy(true)
     try {
-      let roomCode: string
-      if (mode === 'create') {
-        const res = await fetch('/api/rooms', { method: 'POST' })
-        if (!res.ok) throw new Error('create_failed')
-        const data = await res.json()
-        roomCode = data.code as string
-      } else {
-        const trimmedCode = code.trim().toUpperCase()
-        if (!trimmedCode) {
-          setError('Ange en rumskod')
-          setBusy(false)
-          return
-        }
-        const res = await fetch(`/api/rooms/${trimmedCode}`)
-        if (res.status === 404) {
-          setError('Rummet hittades inte')
-          setBusy(false)
-          return
-        }
-        if (!res.ok) throw new Error('lookup_failed')
-        const data = await res.json()
-        roomCode = data.code as string
+      const res = await fetch(`/api/rooms/${trimmedCode}`)
+      if (res.status === 404) {
+        setError(t('landing.roomNotFound'))
+        setBusy(false)
+        return
       }
-      navigate(`/room/${roomCode}`, { state: { name: trimmedName } })
+      if (!res.ok) throw new Error('lookup_failed')
+      const data = await res.json()
+      navigate(`/room/${data.code as string}`, { state: { name: trimmedName } })
     } catch {
-      setError('Något gick fel — försök igen')
+      setError(t('common.somethingWrong'))
       setBusy(false)
     }
   }
@@ -54,27 +46,30 @@ export default function Landing() {
 
       <div className="w-full max-w-sm space-y-4">
         <label className="block">
-          <span className="text-sm text-silver-300">Visningsnamn</span>
+          <span className="text-sm text-silver-300">{t('landing.displayName')}</span>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={24}
-            placeholder="Ditt namn"
+            placeholder={t('landing.displayNamePlaceholder')}
             className="mt-1 w-full rounded-lg bg-silver-900 border border-silver-700 px-3 py-2 text-black focus:outline-none focus:border-gold-500"
             autoFocus
           />
         </label>
 
         <label className="block">
-          <span className="text-sm text-silver-300">Rumskod</span>
+          <span className="text-sm text-silver-300">{t('landing.roomCode')}</span>
           <input
             type="text"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             maxLength={8}
-            placeholder="t.ex. ABCD23"
+            placeholder={t('landing.roomCodePlaceholder')}
             className="mt-1 w-full rounded-lg bg-silver-900 border border-silver-700 px-3 py-2 text-black font-mono tracking-widest focus:outline-none focus:border-gold-500"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') join()
+            }}
           />
         </label>
 
@@ -82,24 +77,10 @@ export default function Landing() {
 
         <button
           disabled={busy}
-          onClick={() => go('join')}
+          onClick={join}
           className="w-full rounded-lg bg-gold-500 hover:bg-gold-400 disabled:opacity-50 text-black font-semibold py-3"
         >
-          Gå med i rum
-        </button>
-
-        <div className="flex items-center gap-3 text-silver-400 text-xs uppercase">
-          <div className="h-px flex-1 bg-silver-700" />
-          eller
-          <div className="h-px flex-1 bg-silver-700" />
-        </div>
-
-        <button
-          disabled={busy}
-          onClick={() => go('create')}
-          className="w-full rounded-lg bg-silver-800 hover:bg-silver-700 disabled:opacity-50 text-black py-3 border border-silver-600"
-        >
-          Skapa nytt rum
+          {t('landing.joinRoom')}
         </button>
       </div>
     </div>

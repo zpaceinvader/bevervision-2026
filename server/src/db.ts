@@ -69,7 +69,24 @@ function createTables() {
       FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
       FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS quiz_answers (
+      room_id TEXT NOT NULL,
+      player_id TEXT NOT NULL,
+      question_id INTEGER NOT NULL,
+      answer_index INTEGER NOT NULL,
+      answered_at INTEGER NOT NULL,
+      PRIMARY KEY (room_id, player_id, question_id),
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+      FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+    );
   `)
+
+  // Migration: add quiz_index to rooms if missing (older DBs predate Sprint 10).
+  const roomCols = db.prepare('PRAGMA table_info(rooms)').all() as { name: string }[]
+  if (!roomCols.some((c) => c.name === 'quiz_index')) {
+    db.exec('ALTER TABLE rooms ADD COLUMN quiz_index INTEGER NOT NULL DEFAULT 0')
+  }
 }
 
 function seedCountries() {

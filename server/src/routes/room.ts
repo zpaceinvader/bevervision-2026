@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { db } from '../db'
 import { COUNTRIES } from '../data/countries'
 import { createRoom, findPlayer, getRoom, listRoomPlayers } from '../rooms'
+import { isQuizActive, quizRemaining } from '../quiz'
 
 const router = Router()
 
@@ -9,7 +10,12 @@ router.get('/countries', (_req, res) => {
   res.json({ countries: COUNTRIES })
 })
 
-router.post('/rooms', (_req, res) => {
+router.post('/rooms', (req, res) => {
+  const expected = process.env.HOST_PASSWORD || 'bever2026'
+  const supplied = typeof req.body?.password === 'string' ? req.body.password : ''
+  if (supplied !== expected) {
+    return res.status(401).json({ error: 'invalid_password' })
+  }
   const room = createRoom()
   res.json({
     code: room.id,
@@ -78,6 +84,8 @@ router.get('/rooms/:code/host-overview', (req, res) => {
       total: COUNTRIES.length,
     })),
     crowdFavourite,
+    quizRemaining: quizRemaining(room.id),
+    quizActive: isQuizActive(room.id),
   })
 })
 

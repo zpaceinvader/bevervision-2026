@@ -229,12 +229,15 @@ Each sprint is self-contained. Start a new context by referencing `SPEC.md` and 
 - [x] CORS configured: same-origin in prod (Express serves React build from same domain)
 
 **Deliverables (remaining):**
-- [ ] Confirm SQLite ephemeral storage is acceptable post-Sprint 7 — if any sprint introduced state that needs to survive a redeploy, mount a Railway Volume and set DB path via env var
-- [ ] Final end-to-end test on production URL: create room, join from two phones, score, host closes, enter results, reveal
-- [ ] Verify Socket.io transport works over Railway's proxy in real conditions (transport fallback is set in Sprint 3; this is the production check)
+- [x] Confirm SQLite ephemeral storage is acceptable — no Sprint 2–7 state needs to survive a redeploy (rooms are per-party, results are revealed once). DB defaults to `process.cwd()/bevervision.db` on Railway's writable `/app` mount; a fresh container gets a fresh DB, which is the intended behaviour for a one-night party.
+- [x] Final end-to-end test on production URL: room created, two clients joined (one websocket / one polling), scored and predicted, host closed voting, results entered, leaderboard reveal delivered to both clients, `GET /api/rooms/:code/results` returned the persisted standings
+- [x] Verify Socket.io transport works over Railway's proxy in real conditions — both `transports: ['polling']` and `['websocket']` succeeded against the public domain
+- [x] Pinned `engines.node >= 20` so Nixpacks picks a runtime compatible with `better-sqlite3` 12.x (Node 18 build failed on first push — fixed by `77c0f08`)
 - [ ] Share URL with party guests
 
 **Definition of done:** Full flow works on real phones over the internet via https://bevervision-production.up.railway.app. Party is ready.
+
+**COMPLETE** ✓
 
 ---
 
@@ -263,18 +266,18 @@ Each sprint is self-contained. Start a new context by referencing `SPEC.md` and 
 **Deliverables:**
 
 **Client:**
-- [ ] Move assets to `client/src/assets/` (or `client/public/cats/`) so Vite can resolve/optimize them. Pick whichever matches existing asset convention in the project.
-- [ ] `lib/scoreReaction.ts` — pure function `scoreToCat(score: number | null): CatKey | null` implementing the mapping above
-- [ ] `CatReaction.tsx` — fixed-position overlay component:
-  - Renders one of the four cat PNGs centered on screen (or anchored over the scored card — pick whichever reads better on mobile)
-  - Animates in (scale 0 → 1 with overshoot, 150ms) and out (fade + scale down, 250ms)
-  - Total on-screen time ~700–900ms
+- [x] Assets stay in `client/assets/` (matches existing convention — same dir as `header.png`, imported via `../../assets/...`). Vite bundles them as hashed files in `dist/assets/`.
+- [x] `lib/scoreReaction.ts` — pure function `scoreToCat(score: number | null): CatKey | null` implementing the mapping above
+- [x] `CatReaction.tsx` — fixed-position overlay component:
+  - Renders one of the four cat PNGs centered on screen
+  - Animates in (scale 0 → 1.15 → 1 with overshoot) and out (fade + scale down)
+  - Total on-screen time ~800ms
   - `pointer-events: none` so it never blocks taps
-  - Stacks above all other UI (`z-index: 50`+)
-- [ ] Trigger from `CountryScoreCard.tsx` (or wherever the score-button tap handler lives) when a non-null score is committed. Tapping the same score that's already selected, or pressing Clear, does NOT trigger an effect.
-- [ ] If a new score is tapped while a previous reaction is still animating, replace it immediately (don't queue)
-- [ ] Preload all four images on Room mount so the first reaction isn't blank on slow connections
-- [ ] Respect `prefers-reduced-motion`: skip the scale animation, just fade in/out at low opacity
+  - `z-50` — stacks above sticky header and saving-flash toast
+- [x] Trigger from `Room.tsx#setScore` (the score-button tap handler ultimately calls this) when the new score is non-null. The current `CountryScoreCard` toggles a re-tap of the selected score to `null`, so a "same selected score" tap and an explicit Clear both produce `null` and skip the effect.
+- [x] If a new score is tapped while a previous reaction is still animating, replace it immediately — `<CatReaction>` keys on the reaction id so React unmounts the old `<img>` and remounts a fresh one, restarting the CSS animation
+- [x] Preload all four images on Room mount via `new Image(); img.src = url`
+- [x] Respect `prefers-reduced-motion`: media query in [index.css](client/src/index.css) swaps the pop animation for a low-opacity fade
 
 **Polish considerations:**
 - Effect must NOT interrupt the debounced server save — it's purely visual
@@ -282,6 +285,89 @@ Each sprint is self-contained. Start a new context by referencing `SPEC.md` and 
 - Verify on mobile (390px) that the cat doesn't push layout or cause horizontal scroll
 
 **Definition of done:** Tapping a score button shows a cat that matches the score's intensity, briefly, then disappears. Rapid tapping different scores swaps cats smoothly. Clearing a score shows nothing. The visual works on mobile and doesn't block further interaction.
+
+**COMPLETE** ✓
+
+---
+
+## Sprint 10 — Host-Triggered Pop Quiz
+
+**Goal:** During the show, the host can tap a button to fire a pop-quiz at every connected player. A multiple-choice question appears on every device, players tap one option, and correct answers earn **5 points** that fold into the final leaderboard total.
+
+**Depends on:** Sprint 5 (host panel exists and authorises host events via password), Sprint 6 (final leaderboard math runs in `calculateFinalScores`)
+
+**Decisions to confirm before implementing:**
+- **Time limit**: default **20 s** auto-close per question. After expiry the server reveals the answer; late submissions are rejected.
+- **Where 5 pts land**: add a third component `quizScore` to `calculateFinalScores`'s output alongside `juryAccuracyScore` and `predictionScore`. Folds into `totalScore`; surfaced as "Quiz N" in the leaderboard card's breakdown line.
+- **When is the button available**: any time `room.status !== 'revealed'` — i.e., during voting AND between voting-closed and leaderboard-reveal. (If the host wants quizzes only during voting, change the gate to `=== 'open'`.)
+- **One quiz at a time per room**: if a quiz is in flight, the host button shows "Quiz pågår…" and is disabled.
+
+**Question file:**
+
+`server/src/data/quiz.ts` exports a typed list. Order is the trigger order — the server walks it sequentially per room.
+
+```ts
+export interface QuizQuestion {
+  id: number              // stable, used as key in events + DB
+  prompt: string          // Swedish copy
+  options: string[]       // 2–4 strings, tappable
+  correctIndex: number    // 0-indexed into `options`
+}
+
+export const QUIZ_QUESTIONS: QuizQuestion[] = [
+  // example
+  // { id: 1, prompt: 'Vilket land vann Eurovision 2024?', options: ['Schweiz', 'Italien', 'Sverige', 'Ukraina'], correctIndex: 0 },
+]
+```
+
+Owner fills the array with the actual party questions before the show.
+
+**Deliverables:**
+
+**Server:**
+- [x] `server/src/data/quiz.ts` with the type + an empty (or seed) array — owner edits to add real questions
+- [x] Migration: add `rooms.quiz_index INTEGER NOT NULL DEFAULT 0` — tracks how many questions have been served per room (ALTER TABLE if column missing, so existing rooms migrate cleanly)
+- [x] Migration: new table `quiz_answers (room_id, player_id, question_id, answer_index, answered_at, PRIMARY KEY (room_id, player_id, question_id))`
+- [x] In-memory `activeQuizzes: Map<roomId, { questionId, deadlineMs, timer }>` — one quiz at a time per room (in `server/src/quiz.ts`)
+- [x] Socket event `host:trigger_quiz` (password-gated via existing `authorizeHost`):
+  - Rejects with `error_msg` if quiz already running, no questions left, or room is revealed
+  - Otherwise picks next question, increments `rooms.quiz_index`, stores active state, broadcasts `quiz:question`
+  - Schedules a 20 s reveal timer
+- [x] Socket event `player:quiz_answer` `{ questionId, answerIndex }`:
+  - Only accepted while quiz is active and pre-deadline
+  - Upserts into `quiz_answers` (idempotent re-pick allowed within window)
+  - Emits `quiz:answer_acked` back to the player
+- [x] Reveal flow (on timer expiry): clears active entry, broadcasts `quiz:reveal { questionId, correctIndex, results[] }`
+- [x] Extended `calculateFinalScores`: `countCorrectAnswers(roomId, playerId) * 10` → `quizScore`, folded into `totalScore` and `breakdown.quiz`
+- [x] `host:reset_room` extended to clear `quiz_answers` and reset `quiz_index` to 0
+- [x] `host-overview` now returns `quizRemaining` and `quizActive`
+
+**Client (player):**
+- [x] `QuizModal.tsx` — fullscreen overlay above the score grid:
+  - Prompt + 2–4 tappable option buttons (A/B/C/D prefix)
+  - Live countdown bar
+  - On tap: emits `player:quiz_answer`, locks options, shows "Inskickad"
+  - On `quiz:reveal`: correct option in gold, your wrong pick in red, "Rätt! +5 poäng" or "Fel svar."
+  - Auto-dismisses ~3.5 s after reveal so the player returns to the score grid
+- [x] `Room.tsx` listens for `quiz:question` / `quiz:answer_acked` / `quiz:reveal`
+- [x] Score grid stays mounted behind the modal — voting state preserved
+- [x] Modal sits at `z-40` over the sticky header, with `bg-black/85 backdrop-blur-sm`
+
+**Client (host):**
+- [x] `Host.tsx` — new "Pop-quiz" section at the top of the panel:
+  - Button with "`N` kvar" badge from `overview.quizRemaining`
+  - Disabled when `quizRemaining === 0`, when a quiz is in flight, when `pending !== null`, or when `room.status === 'revealed'`
+  - In flight: shows "Quiz pågår… `MM`s" with live countdown
+  - When exhausted: shows "Slut på frågor"
+- [x] Extended `pending` union with `'quiz'` to block double-fire
+- [x] `quiz:reveal` listener clears pending and refreshes overview
+
+**Client (leaderboard):**
+- [x] `LeaderboardReveal.tsx` card breakdown line now appends "· Quiz N" when `quizScore > 0`
+
+**Definition of done:** Host presses Pop-quiz → every connected player sees the question; players tap an answer within 20 s; everyone sees the correct option highlighted at reveal; the next press serves question 2; after the last question the button shows "Slut på frågor" and stays disabled; `host:reset_room` resets the pool to 0; quiz points appear in the final leaderboard breakdown and contribute to total score.
+
+**COMPLETE** ✓
 
 ---
 
@@ -297,6 +383,7 @@ Sprint 6 — Leaderboard    (needs 5)
 Sprint 7 — Polish         (needs 6)
 Sprint 8 — Deploy         (needs 7)
 Sprint 9 — Cat Reactions  (needs 4; can slot in anytime after)
+Sprint 10 — Pop Quiz      (needs 5 + 6; can slot in anytime after)
 ```
 
 Sprints 1–6 are the critical path for a working app. Sprint 7–8 can be compressed if time is short. Sprint 9 is pure delight and can be done independently of 5–8.

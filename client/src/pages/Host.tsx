@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import HostPasswordPrompt from '../components/HostPasswordPrompt'
 import ResultsEntry from '../components/ResultsEntry'
+import { useT } from '../lib/i18n'
 import { connectSocket } from '../lib/socket'
 import type { Country, RoomStatus } from '../lib/types'
 
@@ -24,6 +25,8 @@ interface HostOverview {
   status: RoomStatus
   players: HostPlayer[]
   crowdFavourite: CrowdFavourite | null
+  quizRemaining: number
+  quizActive: boolean
 }
 
 const PASSWORD_KEY = (code: string) => `bevervision:host:${code.toUpperCase()}`
@@ -31,6 +34,7 @@ const PASSWORD_KEY = (code: string) => `bevervision:host:${code.toUpperCase()}`
 export default function Host() {
   const { code } = useParams()
   const navigate = useNavigate()
+  const { t } = useT()
   const upperCode = (code ?? '').toUpperCase()
 
   const [password, setPassword] = useState<string | null>(null)
@@ -38,10 +42,13 @@ export default function Host() {
   const [overview, setOverview] = useState<HostOverview | null>(null)
   const [confirmingClose, setConfirmingClose] = useState(false)
   const [confirmingReveal, setConfirmingReveal] = useState(false)
+  const [confirmingReset, setConfirmingReset] = useState(false)
   const [resultsSaved, setResultsSaved] = useState(false)
   const [statusBanner, setStatusBanner] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const [countries, setCountries] = useState<Country[]>([])
-  const [pending, setPending] = useState<null | 'close' | 'save' | 'reveal'>(null)
+  const [pending, setPending] = useState<null | 'close' | 'save' | 'reveal' | 'reset' | 'quiz'>(null)
+  const [quizDeadlineMs, setQuizDeadlineMs] = useState<number | null>(null)
+  const [quizCountdown, setQuizCountdown] = useState<number>(0)
 
   const socket = useMemo(() => connectSocket(), [])
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -98,7 +105,7 @@ export default function Host() {
     function onConnect() {
       socket.emit('host:watch', { code: upperCode, password })
     }
-    function onHostAck(payload: { event: string; status?: RoomStatus }) {
+    function onHostAck(payload: { event: string; status?: RoomStatus; deadlineMs?: number }) {
       if (payload.event === 'host:watch') {
         setAuthError(null)
         try {
@@ -109,19 +116,32 @@ export default function Host() {
         fetchOverview()
       }
       if (payload.event === 'host:close_voting') {
-        setStatusBanner({ kind: 'ok', text: 'Röstningen är stängd' })
+        setStatusBanner({ kind: 'ok', text: t('room.votingClosed') })
         setConfirmingClose(false)
         setPending(null)
         fetchOverview()
       }
       if (payload.event === 'host:enter_results') {
         setResultsSaved(true)
-        setStatusBanner({ kind: 'ok', text: 'Resultat sparade' })
+        setStatusBanner({ kind: 'ok', text: t('host.resultsSaved') })
         setPending(null)
       }
       if (payload.event === 'host:reveal_leaderboard') {
-        setStatusBanner({ kind: 'ok', text: 'Topplistan avslöjas…' })
+        setStatusBanner({ kind: 'ok', text: t('host.revealingLeaderboard') })
         // Leave `pending` set — host should not be able to click again before navigation
+      }
+      if (payload.event === 'host:reset_room') {
+        setStatusBanner({ kind: 'ok', text: t('room.roomReset') })
+        setConfirmingReset(false)
+        setResultsSaved(false)
+        setPending(null)
+        setQuizDeadlineMs(null)
+        fetchOverview()
+      }
+      if (payload.event === 'host:trigger_quiz' && typeof payload.deadlineMs === 'number') {
+        setStatusBanner({ kind: 'ok', text: t('host.quizSent') })
+        setQuizDeadlineMs(payload.deadlineMs)
+        fetchOverview()
       }
     }
     function onError(payload: { event: string; message: string }) {
@@ -132,7 +152,7 @@ export default function Host() {
         } catch {
           // ignore
         }
-        setAuthError('Fel lösenord')
+        setAuthError(t('common.wrongPassword'))
         return
       }
       setStatusBanner({ kind: 'error', text: payload.message })
@@ -145,7 +165,7 @@ export default function Host() {
       scheduleRefresh()
     }
     function onVotingClosed() {
-      setStatusBanner({ kind: 'ok', text: 'Röstningen är stängd' })
+      setStatusBanner({ kind: 'ok', text: t('room.votingClosed') })
       fetchOverview()
     }
     function onResultsSaved() {
@@ -154,6 +174,11 @@ export default function Host() {
     }
     function onLeaderboardReveal() {
       navigate(`/leaderboard/${upperCode}`, { replace: true })
+    }
+    function onQuizReveal() {
+      setQuizDeadlineMs(null)
+      setPending(null)
+      fetchOverview()
     }
 
     socket.on('connect', onConnect)
@@ -166,6 +191,7 @@ export default function Host() {
     socket.on('voting:closed', onVotingClosed)
     socket.on('results:saved', onResultsSaved)
     socket.on('leaderboard:reveal', onLeaderboardReveal)
+    socket.on('quiz:reveal', onQuizReveal)
 
     if (socket.connected) onConnect()
 
@@ -180,9 +206,24 @@ export default function Host() {
       socket.off('voting:closed', onVotingClosed)
       socket.off('results:saved', onResultsSaved)
       socket.off('leaderboard:reveal', onLeaderboardReveal)
+      socket.off('quiz:reveal', onQuizReveal)
       if (refreshTimer.current) clearTimeout(refreshTimer.current)
     }
-  }, [password, upperCode, socket, fetchOverview, navigate, scheduleRefresh])
+  }, [password, upperCode, socket, fetchOverview, navigate, scheduleRefresh, t])
+
+  // Countdown ticker for the active quiz badge
+  useEffect(() => {
+    if (quizDeadlineMs == null) {
+      setQuizCountdown(0)
+      return
+    }
+    function tick() {
+      setQuizCountdown(Math.max(0, Math.ceil(((quizDeadlineMs as number) - Date.now()) / 1000)))
+    }
+    tick()
+    const id = setInterval(tick, 250)
+    return () => clearInterval(id)
+  }, [quizDeadlineMs])
 
   if (!code) return null
   if (!password) {
@@ -200,7 +241,7 @@ export default function Host() {
 
   if (!overview) {
     return (
-      <div className="min-h-screen p-6 max-w-xl mx-auto text-silver-300">Laddar värdpanel…</div>
+      <div className="min-h-screen p-6 max-w-xl mx-auto text-silver-300">{t('host.loadingPanel')}</div>
     )
   }
 
@@ -221,6 +262,24 @@ export default function Host() {
     setPending('save')
     socket.emit('host:enter_results', { code: upperCode, password, rankings })
   }
+  function resetRoom() {
+    if (pending) return
+    setPending('reset')
+    socket.emit('host:reset_room', { code: upperCode, password })
+  }
+  function triggerQuiz() {
+    if (pending) return
+    setPending('quiz')
+    socket.emit('host:trigger_quiz', { code: upperCode, password })
+  }
+
+  const quizInFlight = quizDeadlineMs != null && quizDeadlineMs > Date.now()
+  const quizDisabled =
+    pending !== null ||
+    quizInFlight ||
+    overview.quizActive ||
+    overview.quizRemaining === 0 ||
+    overview.status === 'revealed'
 
   return (
     <div className="min-h-screen pb-24 max-w-xl mx-auto">
@@ -229,13 +288,13 @@ export default function Host() {
           <div>
             <h1 className="font-display text-2xl text-gold-500">BEVERVISION</h1>
             <p className="text-silver-300 text-xs">
-              Värdpanel · Rum <span className="font-mono tracking-widest text-white">{upperCode}</span>
+              {t('host.hostPanel')} · {t('room.roomLabel')} <span className="font-mono tracking-widest text-white">{upperCode}</span>
             </p>
           </div>
           <div className="text-xs text-silver-300 text-right">
-            <div>{onlineCount} online</div>
+            <div>{onlineCount} {t('common.online')}</div>
             <div className="text-silver-500">
-              {overview.players.length} spelare
+              {overview.players.length} {t('host.players')}
             </div>
           </div>
         </div>
@@ -253,38 +312,63 @@ export default function Host() {
       )}
 
       <section className="px-6 mt-5">
-        <h2 className="text-sm uppercase text-silver-300 tracking-wider mb-2">Publikens favorit</h2>
+        <h2 className="text-sm uppercase text-silver-300 tracking-wider mb-2">{t('host.popQuiz')}</h2>
+        <button
+          onClick={triggerQuiz}
+          disabled={quizDisabled}
+          className="w-full rounded-lg bg-gold-500 hover:bg-gold-400 disabled:opacity-40 text-black font-semibold py-3 flex items-center justify-center gap-3"
+        >
+          {quizInFlight ? (
+            <>
+              <span>{t('host.quizInProgress')}</span>
+              <span className="font-mono">{quizCountdown}s</span>
+            </>
+          ) : overview.quizRemaining === 0 ? (
+            <span>{t('host.quizOutOfQuestions')}</span>
+          ) : (
+            <>
+              <span>{t('host.sendQuiz')}</span>
+              <span className="text-xs font-mono bg-black/30 rounded-full px-2 py-0.5">
+                {overview.quizRemaining} {t('host.remaining')}
+              </span>
+            </>
+          )}
+        </button>
+      </section>
+
+      <section className="px-6 mt-5">
+        <h2 className="text-sm uppercase text-silver-300 tracking-wider mb-2">{t('host.crowdFavourite')}</h2>
         {overview.crowdFavourite ? (
           <div className="rounded-xl bg-silver-900/60 border border-silver-700 px-4 py-4 flex items-center gap-4">
             <span className="text-5xl leading-none">{overview.crowdFavourite.country.flag}</span>
             <div className="flex-1 min-w-0">
-              <div className="text-black text-lg font-semibold truncate">{overview.crowdFavourite.country.country}</div>
-              <div className="text-black text-xs truncate">
+              <div className="text-silver-100 text-lg font-semibold truncate">{overview.crowdFavourite.country.country}</div>
+              <div className="text-silver-300 text-xs truncate">
                 {overview.crowdFavourite.country.artist} — <span className="italic">{overview.crowdFavourite.country.song}</span>
               </div>
             </div>
             <div className="text-right">
               <div className="text-gold-400 text-2xl font-bold">{overview.crowdFavourite.totalPoints}</div>
-              <div className="text-black text-xs">{overview.crowdFavourite.votes} röster</div>
+              <div className="text-silver-500 text-xs">{overview.crowdFavourite.votes} {t('host.votes')}</div>
             </div>
           </div>
         ) : (
-          <p className="text-silver-400 text-sm">Inga poäng än.</p>
+          <p className="text-silver-400 text-sm">{t('host.noScoresYet')}</p>
         )}
       </section>
 
       <section className="px-6 mt-6">
-        <h2 className="text-sm uppercase text-silver-300 tracking-wider mb-2">Spelare ({overview.players.length})</h2>
-        {overview.players.length === 0 && <p className="text-silver-400 text-sm">Inga spelare än.</p>}
+        <h2 className="text-sm uppercase text-silver-300 tracking-wider mb-2">{t('host.playersN', { n: overview.players.length })}</h2>
+        {overview.players.length === 0 && <p className="text-silver-400 text-sm">{t('host.noPlayersYet')}</p>}
         <ul className="space-y-2">
           {overview.players.map((p) => (
             <li
               key={p.id}
               className="flex items-center justify-between rounded-lg bg-silver-900/60 border border-silver-700 px-4 py-3"
             >
-              <span className="text-black truncate">{p.name}</span>
+              <span className="text-silver-100 truncate">{p.name}</span>
               <div className="flex items-center gap-3 text-xs">
-                <span className="font-mono text-black">
+                <span className="font-mono text-silver-200">
                   {p.scored}/{p.total}
                 </span>
                 <span
@@ -292,7 +376,7 @@ export default function Host() {
                     p.online ? 'bg-green-900/60 text-green-300' : 'bg-gray-800 text-gray-400'
                   }`}
                 >
-                  {p.online ? 'online' : 'offline'}
+                  {p.online ? t('common.online') : t('common.offline')}
                 </span>
               </div>
             </li>
@@ -307,26 +391,26 @@ export default function Host() {
               onClick={() => setConfirmingClose(true)}
               className="w-full rounded-lg bg-red-700 hover:bg-red-600 text-white font-semibold py-3"
             >
-              Stäng röstning
+              {t('host.closeVoting')}
             </button>
           ) : (
             <div className="rounded-lg border border-red-700 bg-red-900/40 p-4 space-y-3">
               <p className="text-red-100 text-sm text-center">
-                Är du säker? Spelarna kan inte längre ändra poäng eller gissningar.
+                {t('host.closeVotingConfirm')}
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setConfirmingClose(false)}
-                  className="rounded-lg bg-silver-800/60 text-black py-2"
+                  className="rounded-lg bg-silver-800/60 text-silver-100 py-2"
                 >
-                  Avbryt
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={closeVoting}
                   disabled={pending === 'close'}
                   className="rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-semibold py-2"
                 >
-                  {pending === 'close' ? 'Stänger…' : 'Stäng röstning'}
+                  {pending === 'close' ? t('host.closing') : t('host.closeVoting')}
                 </button>
               </div>
             </div>
@@ -336,7 +420,7 @@ export default function Host() {
 
       {overview.status !== 'open' && (
         <section className="px-6 mt-8 space-y-4">
-          <h2 className="text-sm uppercase text-silver-300 tracking-wider">Officiella resultat</h2>
+          <h2 className="text-sm uppercase text-silver-300 tracking-wider">{t('host.officialResults')}</h2>
           {!resultsSaved && (
             <ResultsEntry
               countries={countries}
@@ -346,32 +430,32 @@ export default function Host() {
           )}
           {resultsSaved && overview.status !== 'revealed' && (
             <>
-              <p className="text-silver-300 text-sm text-center">Resultaten är sparade. Redo att avslöja topplistan.</p>
+              <p className="text-silver-300 text-sm text-center">{t('host.readyToReveal')}</p>
               {!confirmingReveal ? (
                 <button
                   onClick={() => setConfirmingReveal(true)}
                   className="w-full rounded-lg bg-gold-500 hover:bg-gold-400 text-black font-semibold py-3"
                 >
-                  Avslöja topplistan
+                  {t('host.revealLeaderboard')}
                 </button>
               ) : (
                 <div className="rounded-lg border border-gold-500 bg-black/40 p-4 space-y-3">
                   <p className="text-silver-100 text-sm text-center">
-                    Alla spelares skärmar går till topplistan. Är du redo?
+                    {t('host.revealConfirm')}
                   </p>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => setConfirmingReveal(false)}
-                      className="rounded-lg bg-silver-800/60 text-black py-2"
+                      className="rounded-lg bg-silver-800/60 text-silver-100 py-2"
                     >
-                      Avbryt
+                      {t('common.cancel')}
                     </button>
                     <button
                       onClick={revealLeaderboard}
                       disabled={pending === 'reveal'}
                       className="rounded-lg bg-gold-500 hover:bg-gold-400 disabled:opacity-50 text-black font-semibold py-2"
                     >
-                      {pending === 'reveal' ? 'Kör…' : 'Kör!'}
+                      {pending === 'reveal' ? t('host.going') : t('host.go')}
                     </button>
                   </div>
                 </div>
@@ -380,6 +464,46 @@ export default function Host() {
           )}
         </section>
       )}
+
+      <section className="px-6 mt-12 pt-6 border-t border-silver-800 space-y-3">
+        <h2 className="text-xs uppercase text-silver-500 tracking-wider">{t('host.emergencyExit')}</h2>
+        {!confirmingReset ? (
+          <button
+            onClick={() => setConfirmingReset(true)}
+            disabled={!!pending}
+            className="w-full rounded-lg bg-silver-800/60 hover:bg-silver-700 disabled:opacity-50 text-silver-100 py-2 text-sm border border-silver-700"
+          >
+            {t('host.resetRoom')}
+          </button>
+        ) : (
+          <div className="rounded-lg border border-silver-700 bg-silver-900/60 p-4 space-y-3">
+            <p className="text-silver-200 text-sm text-center">
+              {t('host.resetConfirm')}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setConfirmingReset(false)}
+                className="rounded-lg bg-silver-800/60 text-silver-100 py-2"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={resetRoom}
+                disabled={pending === 'reset'}
+                className="rounded-lg bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white font-semibold py-2"
+              >
+                {pending === 'reset' ? t('host.resetting') : t('host.reset')}
+              </button>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => navigate('/host')}
+          className="w-full rounded-lg bg-silver-800/40 hover:bg-silver-700 text-silver-300 hover:text-silver-100 py-2 text-sm border border-silver-800"
+        >
+          {t('host.createNewInstead')}
+        </button>
+      </section>
     </div>
   )
 }

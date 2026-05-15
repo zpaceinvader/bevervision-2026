@@ -1,5 +1,6 @@
 import { db } from './db'
 import { SWEDEN_ID, NORWAY_ID } from './data/countries'
+import { countCorrectAnswers, QUIZ_POINTS_PER_CORRECT } from './quiz'
 
 export interface OfficialResult {
   countryId: number
@@ -125,13 +126,19 @@ export function scorePredictions(predictions: Predictions, results: OfficialResu
   }
 }
 
+export interface QuizBreakdown {
+  total: number
+  correctCount: number
+}
+
 export interface PlayerFinalScore {
   playerId: string
   name: string
   juryAccuracyScore: number
   predictionScore: number
+  quizScore: number
   totalScore: number
-  breakdown: { jury: JuryBreakdown; prediction: PredictionBreakdown }
+  breakdown: { jury: JuryBreakdown; prediction: PredictionBreakdown; quiz: QuizBreakdown }
 }
 
 /**
@@ -165,16 +172,19 @@ export function calculateFinalScores(roomId: string): PlayerFinalScore[] {
       const predictions: Predictions = p.predictions ? JSON.parse(p.predictions) : {}
       const jury = scoreJuryAccuracy(scores, references)
       const prediction = scorePredictions(predictions, officialRows)
-      const total = jury.total + prediction.total
+      const correctCount = countCorrectAnswers(roomId, p.id)
+      const quiz: QuizBreakdown = { total: correctCount * QUIZ_POINTS_PER_CORRECT, correctCount }
+      const total = jury.total + prediction.total + quiz.total
 
-      insertResult.run(roomId, p.id, jury.total, prediction.total, total, JSON.stringify({ jury, prediction }))
+      insertResult.run(roomId, p.id, jury.total, prediction.total, total, JSON.stringify({ jury, prediction, quiz }))
       finals.push({
         playerId: p.id,
         name: p.name,
         juryAccuracyScore: jury.total,
         predictionScore: prediction.total,
+        quizScore: quiz.total,
         totalScore: total,
-        breakdown: { jury, prediction },
+        breakdown: { jury, prediction, quiz },
       })
     }
   })
