@@ -30,7 +30,7 @@ const sv = {
   'landing.roomCodePlaceholder': 't.ex. ABCD23',
   'landing.enterRoomCode': 'Ange en rumskod',
   'landing.roomNotFound': 'Rummet hittades inte',
-  'landing.joinRoom': 'Gå med i rum',
+  'landing.joinRoom': 'Gå med i festen',
 
   'hostCreate.subtitle': 'Skapa nytt rum',
   'hostCreate.password': 'Värdlösenord',
@@ -140,7 +140,7 @@ const no: Record<Key, string> = {
   'landing.roomCodePlaceholder': 'f.eks. ABCD23',
   'landing.enterRoomCode': 'Skriv inn en romkode',
   'landing.roomNotFound': 'Rommet ble ikke funnet',
-  'landing.joinRoom': 'Bli med i rom',
+  'landing.joinRoom': 'Bli med i festen',
 
   'hostCreate.subtitle': 'Opprett nytt rom',
   'hostCreate.password': 'Vertspassord',
@@ -248,7 +248,7 @@ const en: Record<Key, string> = {
   'landing.roomCodePlaceholder': 'e.g. ABCD23',
   'landing.enterRoomCode': 'Enter a room code',
   'landing.roomNotFound': 'Room not found',
-  'landing.joinRoom': 'Join room',
+  'landing.joinRoom': 'Join the party',
 
   'hostCreate.subtitle': 'Create new room',
   'hostCreate.password': 'Host password',
