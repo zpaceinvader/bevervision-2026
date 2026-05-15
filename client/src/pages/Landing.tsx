@@ -53,7 +53,7 @@ export default function Landing() {
             onChange={(e) => setName(e.target.value)}
             maxLength={24}
             placeholder={t('landing.displayNamePlaceholder')}
-            className="mt-1 w-full rounded-lg bg-silver-900 border border-silver-700 px-3 py-2 text-black focus:outline-none focus:border-gold-500"
+            className="mt-1 w-full rounded-lg bg-silver-900 border border-silver-700 px-3 py-2 text-white focus:outline-none focus:border-gold-500"
             autoFocus
           />
         </label>
@@ -66,7 +66,7 @@ export default function Landing() {
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             maxLength={8}
             placeholder={t('landing.roomCodePlaceholder')}
-            className="mt-1 w-full rounded-lg bg-silver-900 border border-silver-700 px-3 py-2 text-black font-mono tracking-widest focus:outline-none focus:border-gold-500"
+            className="mt-1 w-full rounded-lg bg-silver-900 border border-silver-700 px-3 py-2 text-white font-mono tracking-widest focus:outline-none focus:border-gold-500"
             onKeyDown={(e) => {
               if (e.key === 'Enter') join()
             }}
