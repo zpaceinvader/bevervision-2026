@@ -31,7 +31,7 @@ export default function ResultsEntry({ countries, initial, disabled, onSubmit }:
   })
   const [error, setError] = useState<string | null>(null)
 
-  const ranked = useMemo(() => {
+  const rankByCountryId = useMemo(() => {
     const sorted = [...rows].sort((a, b) => {
       const ap = a.officialPoints
       const bp = b.officialPoints
@@ -41,10 +41,11 @@ export default function ResultsEntry({ countries, initial, disabled, onSubmit }:
       if (bp !== ap) return bp - ap
       return a.countryId - b.countryId
     })
-    return sorted.map((r, i) => ({
-      ...r,
-      derivedRank: r.officialPoints == null ? null : i + 1,
-    }))
+    const map = new Map<number, number | null>()
+    sorted.forEach((r, i) => {
+      map.set(r.countryId, r.officialPoints == null ? null : i + 1)
+    })
+    return map
   }, [rows])
 
   function update(countryId: number, points: number | null) {
@@ -84,16 +85,17 @@ export default function ResultsEntry({ countries, initial, disabled, onSubmit }:
         <span className="col-span-7">{t('results.country')}</span>
         <span className="col-span-3">{t('results.points')}</span>
       </div>
-      {ranked.map((r) => {
+      {rows.map((r) => {
         const c = countryById.get(r.countryId)
         if (!c) return null
+        const derivedRank = rankByCountryId.get(r.countryId) ?? null
         return (
           <div
             key={r.countryId}
             className="grid grid-cols-12 gap-2 items-center rounded-lg bg-silver-900/60 border border-silver-700 px-2 py-2"
           >
             <div className="col-span-2 text-center font-mono text-gold-400 text-lg">
-              {r.derivedRank == null ? '—' : `#${r.derivedRank}`}
+              {derivedRank == null ? '—' : `#${derivedRank}`}
             </div>
             <div className="col-span-7 flex items-center gap-2 min-w-0">
               <span className="text-xl leading-none">{c.flag}</span>
